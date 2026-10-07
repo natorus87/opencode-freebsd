@@ -20,22 +20,25 @@ scripts; end-to-end arm64 validation on real hardware is still pending
 
 ## Install a prebuilt release (no build needed)
 
-Nothing is compiled; the script downloads the release, verifies its
-checksum, smoke-tests it, and installs it. Run as root for the default
-destination:
+One line, as root. Nothing is compiled: the installer downloads the release
+matching your architecture (amd64 or arm64), verifies its checksum,
+smoke-tests it, and installs to `/usr/local/bin/opencode`:
 
 ```sh
-fetch -o /tmp/install.sh https://raw.githubusercontent.com/natorus87/opencode-freebsd/main/install.sh
-sh /tmp/install.sh --from-github latest
-opencode --version
+fetch -q -o - https://raw.githubusercontent.com/natorus87/opencode-freebsd/main/install.sh | sh -s -- --from-github latest
 ```
 
-This picks the build matching your architecture (amd64 or arm64). For a
-pinned version: `sh install.sh --from-github 0.0.0-dev-202610061344`.
-Alternative without the download flag: take the tarball from the
-[releases page](https://github.com/natorus87/opencode-freebsd/releases) and run
-`sh install.sh <tarball>` (a local clone of this repo also works:
-`sh install.sh` inside it).
+With curl instead of fetch (needs `pkg install curl` first on stock FreeBSD):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/natorus87/opencode-freebsd/main/install.sh | sh -s -- --from-github latest
+```
+
+Then `opencode --version`. For a pinned version replace `latest` with e.g.
+`0.0.0-dev-202610061344`. Without the pipe: download `install.sh` first and
+run `sh install.sh --from-github latest`, or take the tarball from the
+[releases page](https://github.com/natorus87/opencode-freebsd/releases) and
+run `sh install.sh <tarball>`.
 
 ## Building from source
 

@@ -53,7 +53,6 @@ targets.
 On a second machine, as root:
 
 ```sh
-fetch -o /tmp/install.sh https://raw.githubusercontent.com/natorus87/opencode-freebsd/main/install.sh
-sh /tmp/install.sh --from-github <VERSION>
+fetch -q -o - https://raw.githubusercontent.com/natorus87/opencode-freebsd/main/install.sh | sh -s -- --from-github <VERSION>
 opencode --version
 ```
