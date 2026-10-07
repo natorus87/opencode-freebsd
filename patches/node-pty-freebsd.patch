@@ -1,0 +1,54 @@
+Build node-pty on FreeBSD.
+
+Upstream node-pty 1.2.0-beta.15 defines pty_close_inherited_fds() (and its
+SetCloseOnExec() helper) inside `#if defined(__linux__)`, but calls it
+unconditionally in the post-fork child, right before execvp(). On FreeBSD that
+is a hard compile error:
+
+  src/unix/pty.cc:477:7: error: use of undeclared identifier
+      'pty_close_inherited_fds'
+
+The fix is to compile the same helper on FreeBSD. The Linux implementation is
+already portable apart from its close_range() fast path, and FreeBSD has had
+close_range(2) with CLOSE_RANGE_CLOEXEC since 13.0 — declared in
+<unistd.h>:506, flag in <sys/unistd.h>:217 on this 15.1 box — so it is used
+directly as a libc call rather than through syscall(SYS_close_range, ...),
+which is the Linux-specific spelling. The fcntl() loop stays as the fallback
+for both platforms, unchanged.
+
+Semantics are deliberately identical to Linux: descriptors are marked
+FD_CLOEXEC, not closed. closefrom(3) would close them outright — a different
+behaviour, and not what the caller expects.
+
+Verified on a FreeBSD build host ( FreeBSD 15.1-RC2, node 24.14.1, node-gyp 12.4.0):
+node-pty 1.2.0-beta.15 compiles clean with this patch and works at runtime --
+spawning /bin/sh through forkpty(3) returns its output and exit code 0.
+
+--- a/src/unix/pty.cc	2026-08-26 13:40:44.514396000 +0000
++++ b/src/unix/pty.cc	2026-08-26 13:40:44.527467000 +0000
+@@ -112,7 +112,7 @@
+   int exit_code = 0, signal_code = 0;
+ };
+ 
+-#if defined(__linux__)
++#if defined(__linux__) || defined(__FreeBSD__)
+ 
+ static int
+ SetCloseOnExec(int fd) {
+@@ -130,8 +130,15 @@
+  */
+ static void
+ pty_close_inherited_fds() {
++  // FreeBSD 13+ exposes close_range(2) as a plain libc function; Linux
++  // reaches the same syscall through syscall(SYS_close_range, ...).
++  #if defined(__FreeBSD__) && defined(CLOSE_RANGE_CLOEXEC)
++  if (close_range(3, ~0U, CLOSE_RANGE_CLOEXEC) == 0) {
++    return;
++  }
++  #endif
+   // Try close_range() first (Linux 5.9+, glibc 2.34+)
+-  #if defined(SYS_close_range) && defined(CLOSE_RANGE_CLOEXEC)
++  #if defined(__linux__) && defined(SYS_close_range) && defined(CLOSE_RANGE_CLOEXEC)
+   if (syscall(SYS_close_range, 3, ~0U, CLOSE_RANGE_CLOEXEC) == 0) {
+     return;
+   }

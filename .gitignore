@@ -1,0 +1,4 @@
+.config/
+node_modules/
+*.tar.gz
+opencode-*-freebsd-x64/

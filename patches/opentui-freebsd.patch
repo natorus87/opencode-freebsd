@@ -1,0 +1,51 @@
+Build @opentui/core's native library on FreeBSD.
+
+opentui's Zig build refuses to build for the host unless the host appears in
+its SUPPORTED_TARGETS table:
+
+  No matching supported target for native platform (x86_64-freebsd)
+  error: UnsupportedNativeTarget
+
+Two additions are enough — nothing in the Zig or C/C++ sources needed
+touching:
+
+  1. FreeBSD entries in SUPPORTED_TARGETS (x86_64 and aarch64; the aarch64 one
+     is untested here, it is listed so the Chimp/aarch64 target is not blocked
+     on a second patch).
+  2. A .freebsd arm in the linkSystemLibraries() switch. It omits the "dl"
+     that the Linux arm links, because on FreeBSD dlopen(3) and friends live
+     in libc and there is no separate libdl to link; libm and libpthread (a
+     filter over libthr) are real and are linked as on Linux.
+
+ghosttyVtAvailable() is deliberately left alone: it returns false for FreeBSD
+via its `else` arm, so the ghostty-vt terminal emulator is compiled out. That
+is what the RC=0 build below actually built — whether opentui needs it at
+runtime for opencode's TUI has NOT been verified.
+
+Verified on a FreeBSD build host ( FreeBSD 15.1-RC2, zig 0.16.0, opentui @ main,
+packages/native version 0.1.11): `sh scripts/prepare-zig-deps.sh` then
+`zig build -Doptimize=ReleaseFast` exits 0 and produces
+lib/x86_64-freebsd/libopentui.so — 20 MB, 1829 exported text symbols.
+
+--- a/packages/native/build.zig	2026-08-26 13:45:50.847520000 +0000
++++ b/packages/native/build.zig	2026-08-26 13:45:50.865680000 +0000
+@@ -25,6 +25,8 @@
+     .{ .zig_target = "aarch64-linux-musl", .output_name = "aarch64-linux-musl", .description = "Linux aarch64 (musl)" },
+     .{ .zig_target = "x86_64-macos.13.0", .output_name = "x86_64-macos", .description = "macOS x86_64 (Intel)" },
+     .{ .zig_target = "aarch64-macos.13.0", .output_name = "aarch64-macos", .description = "macOS aarch64 (Apple Silicon)" },
++    .{ .zig_target = "x86_64-freebsd", .output_name = "x86_64-freebsd", .description = "FreeBSD x86_64" },
++    .{ .zig_target = "aarch64-freebsd", .output_name = "aarch64-freebsd", .description = "FreeBSD aarch64" },
+     .{ .zig_target = "x86_64-windows-gnu", .output_name = "x86_64-windows", .description = "Windows x86_64" },
+     .{ .zig_target = "aarch64-windows-gnu", .output_name = "aarch64-windows", .description = "Windows aarch64" },
+ };
+@@ -367,6 +369,10 @@
+         .macos => addMacOSSystemLibraries(b, module, macos_sdk_path.?),
+         .linux => {
+             module.linkSystemLibrary("dl", .{});
++            module.linkSystemLibrary("pthread", .{});
++            module.linkSystemLibrary("m", .{});
++        },
++        .freebsd => {
+             module.linkSystemLibrary("pthread", .{});
+             module.linkSystemLibrary("m", .{});
+         },
