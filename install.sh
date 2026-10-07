@@ -1,18 +1,23 @@
 #!/bin/sh
-# Install (or update) the native opencode FreeBSD binary from a local
-# release directory or tarball to DEST (default: /usr/local/bin/opencode).
+# Install (or update) the native opencode FreeBSD binary to DEST
+# (default: /usr/local/bin/opencode) -- from a GitHub release, a local
+# release directory, or a tarball. Nothing is built; no source needed.
 #
 # Safety per candidate: SHA256 check -> smoke test (--version) ->
 # version comparison -> install -> verification. On any failure nothing
 # is replaced; the installed binary keeps working.
 #
 # Usage:
-#   sh install.sh [options] [version | tarball]
+#   sh install.sh --from-github latest            # easiest: newest GitHub release
+#   sh install.sh --from-github 0.0.0-dev-202610061344   # pinned version
+#   sh install.sh [options] [version | tarball]   # local sources
 #     (no argument: newest release in the releases directory;
 #      version e.g. 0.0.0-dev-202610061344 -- older versions work as rollback;
-#      or a path to an opencode-*-freebsd-x64.tar.gz tarball)
+#      or a path to an opencode-*-freebsd-*.tar.gz tarball)
 #
 # Options:
+#   --from-github VER|latest   download the release tarball from GitHub
+#                              (needs fetch(1) or curl; repo via $GITHUB_REPO)
 #   --releases DIR   where releases live (default: $HOME/opencode-releases)
 #   --dest PATH      install destination (default: /usr/local/bin/opencode)
 #   --check          only report whether an update is needed (exit 1 if so)
@@ -22,15 +27,23 @@
 set -u
 
 RELEASES="${OC_RELEASES:-$HOME/opencode-releases}"
+GITHUB_REPO="${GITHUB_REPO:-natorus87/opencode-freebsd}"
 DEST=/usr/local/bin/opencode
 QUIET=0; CHECK=0; FORCE=0
-WANT=""
+WANT=""; FROM_GITHUB=""
 
 say() { [ "$QUIET" -eq 0 ] && echo "install: $*"; return 0; }
 err() { echo "install: ERROR: $*" >&2; }
+dl() { # $1=url $2=outfile (or - for stdout); fetch(1) preferred, curl fallback
+	if command -v fetch >/dev/null 2>&1; then fetch -q -o "$2" "$1"
+	elif command -v curl >/dev/null 2>&1; then curl -fsSL -o "$2" "$1"
+	else return 1; fi
+}
 
 while [ $# -gt 0 ]; do
 	case $1 in
+		--from-github) FROM_GITHUB=$2; shift 2 ;;
+		--from-github=*) FROM_GITHUB=${1#--from-github=}; shift ;;
 		--releases) RELEASES=$2; shift 2 ;;
 		--releases=*) RELEASES=${1#--releases=}; shift ;;
 		--dest) DEST=$2; shift 2 ;;
@@ -38,7 +51,7 @@ while [ $# -gt 0 ]; do
 		--check) CHECK=1; shift ;;
 		--force) FORCE=1; shift ;;
 		--quiet) QUIET=1; shift ;;
-		-h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+		-h|--help) sed -n '2,27p' "$0"; exit 0 ;;
 		-*) err "unknown option: $1"; exit 2 ;;
 		*) WANT=$1; shift ;;
 	esac
@@ -61,11 +74,33 @@ esac
 cleanup() { [ -n "$TMPDIR" ] && [ -d "$TMPDIR" ] && rm -rf "$TMPDIR"; }
 trap cleanup EXIT INT TERM
 
+if [ -n "$FROM_GITHUB" ]; then
+	[ -z "$WANT" ] || { err "--from-github takes the version itself, no extra argument"; exit 2; }
+	[ -n "$NATIVE_ARCH" ] || { err "unsupported architecture $(uname -m)"; exit 1; }
+	command -v fetch >/dev/null 2>&1 || command -v curl >/dev/null 2>&1 ||
+		{ err "need fetch(1) or curl to download from GitHub"; exit 1; }
+	if [ "$FROM_GITHUB" = "latest" ]; then
+		TAG=$(dl "https://api.github.com/repos/${GITHUB_REPO}/releases/latest" - 2>/dev/null |
+			grep -m1 '"tag_name"' | sed 's/.*"tag_name": *"//;s/".*//') ||
+			{ err "could not query latest release"; exit 1; }
+		[ -n "$TAG" ] || { err "could not query latest release"; exit 1; }
+	else
+		TAG="freebsd-${NATIVE_ARCH}-${FROM_GITHUB}"
+	fi
+	GH_VER=${TAG#freebsd-${NATIVE_ARCH}-}
+	[ "$GH_VER" != "$TAG" ] || { err "not a freebsd-${NATIVE_ARCH} release tag: $TAG"; exit 1; }
+	URL="https://github.com/${GITHUB_REPO}/releases/download/${TAG}/opencode-${GH_VER}-freebsd-${NATIVE_ARCH}.tar.gz"
+	say "downloading $URL ..."
+	TMPDIR="$(mktemp -d)" || { err "mktemp failed"; exit 1; }
+	dl "$URL" "$TMPDIR/release.tar.gz" || { err "download failed: $URL"; exit 1; }
+	WANT="$TMPDIR/release.tar.gz"
+fi
+
 if [ -n "$WANT" ]; then
 	case "$WANT" in
 		*.tar.gz)
 			[ -f "$WANT" ] || { err "tarball not found: $WANT"; exit 1; }
-			TMPDIR="$(mktemp -d)" || { err "mktemp failed"; exit 1; }
+			[ -n "$TMPDIR" ] || TMPDIR="$(mktemp -d)" || { err "mktemp failed"; exit 1; }
 			tar -xzf "$WANT" -C "$TMPDIR" || { err "unpacking $WANT failed"; exit 1; }
 			DIR="$(ls -d "$TMPDIR"/opencode-*-freebsd-*/ 2>/dev/null | head -1)"
 			if [ -z "$DIR" ] && [ -x "$TMPDIR/opencode" ] && [ -f "$TMPDIR/SHA256SUMS" ]; then

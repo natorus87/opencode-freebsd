@@ -18,18 +18,24 @@ the full TUI rendering under a real tty. arm64 builds are supported by the
 scripts; end-to-end arm64 validation on real hardware is still pending
 (see [aarch64](#aarch64)).
 
-## Fast path: use a prebuilt release
+## Install a prebuilt release (no build needed)
 
-1. Download `opencode-<VERSION>-freebsd-x64.tar.gz` and its `SHA256SUMS`
-   from the [releases page](https://github.com/natorus87/opencode-freebsd/releases).
-2. Verify and install:
+Nothing is compiled; the script downloads the release, verifies its
+checksum, smoke-tests it, and installs it. Run as root for the default
+destination:
 
 ```sh
-sha256 -c SHA256SUMS          # must say OK
-tar -xzf opencode-<VERSION>-freebsd-x64.tar.gz
-sh install.sh opencode-<VERSION>-freebsd-x64.tar.gz
+fetch -o /tmp/install.sh https://raw.githubusercontent.com/natorus87/opencode-freebsd/main/install.sh
+sh /tmp/install.sh --from-github latest
 opencode --version
 ```
+
+This picks the build matching your architecture (amd64 or arm64). For a
+pinned version: `sh install.sh --from-github 0.0.0-dev-202610061344`.
+Alternative without the download flag: take the tarball from the
+[releases page](https://github.com/natorus87/opencode-freebsd/releases) and run
+`sh install.sh <tarball>` (a local clone of this repo also works:
+`sh install.sh` inside it).
 
 ## Building from source
 
@@ -175,6 +181,16 @@ above, and only then cut a `freebsd-arm64-*` release.
 Caveats carried over from the earlier arm64 spot-checks: the fff
 FFI-level exercise and end-to-end TUI rendering were verified on amd64
 only; on arm64 the libraries were loaded and symbols resolved, nothing more.
+
+### Why not emulated builds (QEMU)?
+
+Evaluated and rejected: the project's build host is itself a QEMU VM with
+4 vCPUs / 4 GB RAM, so a TCG-emulated arm64 guest would get roughly half of
+that — rustc, the Zig release build and the ~100 MB bun link would take
+many hours to days or die of OOM. QEMU is not installed there, and a guest
+FreeBSD install plus networking would be fragile to babysit. On top of that,
+an emulated-only validation is not a trustworthy release. Native arm64
+hardware remains the requirement (see above).
 
 ## What this does not claim
 

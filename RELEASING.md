@@ -31,12 +31,18 @@ cat ~/opencode-releases/opencode-*-freebsd-x64/SHA256SUMS
 ```sh
 cd "$HOME/opencode-releases"
 VER=<VERSION>   # e.g. 0.0.0-dev-202610061344
-gh release create "freebsd-x64-${VER}" \
+ARCH=<arch>     # x64 or arm64, matching the built binary
+gh release create "freebsd-${ARCH}-${VER}" \
   --repo natorus87/opencode-freebsd \
-  --title "FreeBSD x86_64 ${VER}" \
-  --notes "Native FreeBSD-amd64 build of opencode ${VER}. See BUILD-INFO.txt in the tarball for toolchain details. Verify with: sha256 -c SHA256SUMS" \
-  "opencode-${VER}-freebsd-x64.tar.gz#opencode-${VER}-freebsd-x64.tar.gz"
+  --title "FreeBSD ${ARCH} ${VER}" \
+  --notes "Native FreeBSD-${ARCH} build of opencode ${VER}. See BUILD-INFO.txt in the tarball for toolchain details. Install without building: sh install.sh --from-github ${VER}" \
+  "opencode-${VER}-freebsd-${ARCH}.tar.gz#opencode-${VER}-freebsd-${ARCH}.tar.gz"
 ```
+
+Tag convention (consumers rely on it — `install.sh --from-github` builds
+these URLs mechanically): `freebsd-<arch>-<version>` with asset
+`opencode-<version>-freebsd-<arch>.tar.gz`. Upload `SHA256SUMS` and
+`BUILD-INFO.txt` as extra assets alongside the tarball.
 
 Keep every release immutable: never overwrite an older tarball,.publish a
 new version instead. `install.sh` treats older versions as valid rollback
@@ -44,10 +50,10 @@ targets.
 
 ## 4. Verify from the consumer side
 
-On a second machine (or after moving the tarball aside):
+On a second machine, as root:
 
 ```sh
-sha256 -c SHA256SUMS
-sh install.sh opencode-<VERSION>-freebsd-x64.tar.gz
+fetch -o /tmp/install.sh https://raw.githubusercontent.com/natorus87/opencode-freebsd/main/install.sh
+sh /tmp/install.sh --from-github <VERSION>
 opencode --version
 ```
