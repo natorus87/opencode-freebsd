@@ -1,0 +1,41 @@
+Build @opentui/core 0.4.5's native library on FreeBSD (zig 0.15.2).
+
+Same two edits as opentui-freebsd.patch, against the 0.4.5 tree where the Zig
+sources live at packages/core/src/zig rather than packages/native.
+
+Version notes, both load-bearing:
+  - opencode pins @opentui/core 0.4.5, so this — not main — is the tree whose
+    .so has to match the installed JS.
+  - 0.4.5's build.zig.zon declares minimum_zig_version 0.15.2. FreeBSD's
+    pkg ships zig 0.16.0, which fails on this tree with std.Build API errors
+    ("member function expected 3 argument(s), found 2" from a vendored
+    uucode build.zig). Build it with an unpacked zig 0.15.2 toolchain from
+    ziglang.org; 0.16.0 does build the newer opentui main.
+
+The .freebsd arm links only libpthread, omitting the "dl" the Linux arm links,
+because FreeBSD keeps dlopen(3) in libc with no separate libdl.
+
+Verified on the dev VM (185, FreeBSD 15.1-RC2, zig 0.15.2): exits 0 and emits
+lib/x86_64-freebsd/libopentui.so (13.8 MB). aarch64 is listed but NOT built.
+
+--- a/packages/core/src/zig/build.zig	2026-08-26 13:56:17.061115000 +0000
++++ b/packages/core/src/zig/build.zig	2026-08-26 13:56:17.079986000 +0000
+@@ -25,6 +25,8 @@
+     .{ .zig_target = "aarch64-linux-musl", .output_name = "aarch64-linux-musl", .description = "Linux aarch64 (musl)" },
+     .{ .zig_target = "x86_64-macos", .output_name = "x86_64-macos", .description = "macOS x86_64 (Intel)" },
+     .{ .zig_target = "aarch64-macos", .output_name = "aarch64-macos", .description = "macOS aarch64 (Apple Silicon)" },
++    .{ .zig_target = "x86_64-freebsd", .output_name = "x86_64-freebsd", .description = "FreeBSD x86_64" },
++    .{ .zig_target = "aarch64-freebsd", .output_name = "aarch64-freebsd", .description = "FreeBSD aarch64" },
+     .{ .zig_target = "x86_64-windows-gnu", .output_name = "x86_64-windows", .description = "Windows x86_64" },
+     .{ .zig_target = "aarch64-windows-gnu", .output_name = "aarch64-windows", .description = "Windows aarch64" },
+ };
+@@ -193,6 +195,9 @@
+             artifact.linkSystemLibrary("dl");
+             artifact.linkSystemLibrary("pthread");
+         },
++        .freebsd => {
++            artifact.linkSystemLibrary("pthread");
++        },
+         else => {},
+     }
+ }

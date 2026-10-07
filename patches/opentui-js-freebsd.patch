@@ -1,0 +1,66 @@
+Resolve @opentui/core's native library on FreeBSD.
+
+Complements opentui-freebsd.patch (which teaches the Zig build to produce a
+FreeBSD libopentui.so). This side is the JS resolver that has to find it:
+
+  1. src/node-asset-target.ts — NATIVE_FILE_NAMES has no freebsd key, so
+     getNativeAssetDescriptor() throws "Unsupported OpenTUI Node asset target:
+     freebsd-x64" before any lookup, including before OTUI_ASSET_ROOT is
+     consulted.
+  2. src/platform/runtime-assets.bun.ts — resolveNativeLibraryPath() has arms
+     for darwin/linux/win32 only, and ends in a throw.
+
+The platform package @opentui/core-freebsd-x64 that the new arm imports does
+not exist on npm; it is built locally (see build-opencode-freebsd.sh), with
+the same three-file shape as the published @opentui/core-linux-x64:
+package.json, index.js, index.bun.js, plus libopentui.so.
+
+NOTE ON VERSIONS: this diff is against opentui main (0.5.8), but opencode
+pins @opentui/core 0.4.5, whose native sources live at a different path
+(packages/core/src/zig) and need zig 0.15.2 rather than 0.16.0. The 0.4.5
+equivalents are opentui-0.4.5-freebsd-zig.patch and the installed-chunk edit
+performed by build-opencode-freebsd.sh. Swapping 0.5.8 in wholesale was
+rejected: the JS<->FFI contract is version-coupled.
+
+Verified on the dev VM (185): with the 0.4.5 library in place, importing
+@opentui/core resolves to the FreeBSD .so, and opencode's TUI renders a full
+screen under a real tty (logo, prompt, status bar).
+
+diff --git a/packages/core/src/node-asset-target.ts b/packages/core/src/node-asset-target.ts
+index 4697e21..10596a8 100644
+--- a/packages/core/src/node-asset-target.ts
++++ b/packages/core/src/node-asset-target.ts
+@@ -1,5 +1,5 @@
+ export type NodeAssetTarget = {
+-  readonly platform: "darwin" | "linux" | "win32"
++  readonly platform: "darwin" | "linux" | "win32" | "freebsd"
+   readonly arch: "arm64" | "x64"
+   readonly libc?: "glibc" | "musl"
+ }
+@@ -14,6 +14,7 @@ const NATIVE_FILE_NAMES = {
+   darwin: "libopentui.dylib",
+   linux: "libopentui.so",
+   win32: "opentui.dll",
++  freebsd: "libopentui.so",
+ } as const
+ 
+ export function getNativeAssetDescriptor(target: NodeAssetTarget): NativeAssetDescriptor {
+diff --git a/packages/core/src/platform/runtime-assets.bun.ts b/packages/core/src/platform/runtime-assets.bun.ts
+index 02e4653..e3b6152 100644
+--- a/packages/core/src/platform/runtime-assets.bun.ts
++++ b/packages/core/src/platform/runtime-assets.bun.ts
+@@ -68,6 +68,14 @@ export async function resolveNativeLibraryPath(): Promise<string> {
+     }
+   }
+ 
++  if (process.platform === "freebsd") {
++    if (process.arch === "x64") {
++      return (await import("@opentui/core-freebsd-x64")).default
++    }
++    if (process.arch === "arm64") {
++      return (await import("@opentui/core-freebsd-arm64")).default
++    }
++  }
+   if (process.platform === "win32") {
+     if (process.arch === "x64") {
+       return ((await import("@opentui/core-win32-x64" as string)) as NativePackageModule).default

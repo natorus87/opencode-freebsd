@@ -1,0 +1,69 @@
+Build and load @ff-labs/fff-bun on FreeBSD.
+
+fff-bun is the first thing opencode fails on under FreeBSD, before anything
+else gets a chance to break:
+
+  error: Cannot find module '@ff-labs/fff-bun'
+      from packages/core/src/filesystem/fff.bun.ts
+
+Two separate reasons, both fixed here:
+
+  1. package.json's "os" list omits freebsd, so bun/npm skip installing the
+     package entirely.
+  2. getTriple() in src/platform.ts throws "Unsupported platform: freebsd"
+     before any lookup happens. It is called from getNpmPackageName(), which
+     findBinary() calls OUTSIDE its try/catch in the production path, so the
+     throw escapes rather than degrading to "no prebuilt, use the dev build".
+
+The native library itself needs no patch: `cargo build --release -p fff-c`
+builds crates/fff-c (crate-type = cdylib) cleanly on FreeBSD as-is, producing
+target/release/libfff_c.so. Only the JS-side platform plumbing was wrong.
+
+The two triples added to TRIPLE_TO_NPM_PACKAGE point at @ff-labs/fff-bin-
+freebsd-{x64,arm64}, which do not exist on npm. That is deliberate and
+harmless: resolveFromNpmPackage() swallows the resolution failure and
+findBinary() falls through to the locally built library. Publishing those
+packages upstream would make the mapping real; until then it just keeps the
+lookup from throwing.
+
+Verified on the dev VM (185, FreeBSD 15.1-RC2, bun 1.4.0, rustc 1.96.1):
+libfff_c.so loads through bun:ffi and FileFinder.create() + fileSearch()
+return 100 real hits with git status and file metadata over a live tree.
+aarch64 is listed but NOT built or tested here.
+
+diff --git a/packages/fff-bun/package.json b/packages/fff-bun/package.json
+index ec5ff07..4813048 100644
+--- a/packages/fff-bun/package.json
++++ b/packages/fff-bun/package.json
+@@ -33,7 +33,8 @@
+     "darwin",
+     "linux",
+     "win32",
+-    "android"
++    "android",
++    "freebsd"
+   ],
+   "cpu": [
+     "x64",
+diff --git a/packages/fff-bun/src/platform.ts b/packages/fff-bun/src/platform.ts
+index 11070e2..130661d 100644
+--- a/packages/fff-bun/src/platform.ts
++++ b/packages/fff-bun/src/platform.ts
+@@ -20,6 +20,8 @@ export function getTriple(): string {
+     osName = detectLinuxLibc();
+   } else if (platform === "win32") {
+     osName = "pc-windows-msvc";
++  } else if (platform === "freebsd") {
++    osName = "unknown-freebsd";
+   } else {
+     throw new Error(`Unsupported platform: ${platform}`);
+   }
+@@ -110,6 +112,8 @@ const TRIPLE_TO_NPM_PACKAGE: Record<string, string> = {
+   "x86_64-pc-windows-msvc": "@ff-labs/fff-bin-win32-x64",
+   "aarch64-pc-windows-msvc": "@ff-labs/fff-bin-win32-arm64",
+   "aarch64-linux-android": "@ff-labs/fff-bin-android-arm64",
++  "x86_64-unknown-freebsd": "@ff-labs/fff-bin-freebsd-x64",
++  "aarch64-unknown-freebsd": "@ff-labs/fff-bin-freebsd-arm64",
+ };
+ 
+ /**
