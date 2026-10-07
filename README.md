@@ -14,7 +14,9 @@ sh install.sh          # install the newest packaged release to /usr/local/bin/o
 ```
 
 Verified on FreeBSD 15.x amd64: `opencode --help`, a headless server, and
-the full TUI rendering under a real tty.
+the full TUI rendering under a real tty. arm64 builds are supported by the
+scripts; end-to-end arm64 validation on real hardware is still pending
+(see [aarch64](#aarch64)).
 
 ## Fast path: use a prebuilt release
 
@@ -36,6 +38,11 @@ Prerequisites (one-time, via pkg):
 ```sh
 pkg install git python3 rust node npm-node24 llvm ca_root_nss
 ```
+
+On amd64, `build.sh` installs bun itself from the official
+`@oven/bun-freebsd-x64` npm package if missing. That package has no arm64
+variant, so on arm64 install a FreeBSD/aarch64 bun first (e.g. via pkg)
+before running the script.
 
 Then:
 
@@ -60,9 +67,11 @@ What `build.sh` does:
    (`patches/opentui-0.4.5-freebsd-zig.patch`) and teaches the installed
    JS bundle to resolve it on freebsd (source equivalent:
    `patches/opentui-js-freebsd.patch`).
-6. **Binary** — adds `{ os: "freebsd", arch: "x64" }` to `allTargets` in
+6. **Binary** — adds `{ os: "freebsd", arch: "x64" }` and
+   `{ os: "freebsd", arch: "arm64" }` to `allTargets` in
    `packages/opencode/script/build.ts` (idempotent) and runs
-   `bun run packages/opencode/script/build.ts --single --skip-install`.
+   `bun run packages/opencode/script/build.ts --single --skip-install`
+   (`--single` selects the entry matching the build host).
 7. **Validate** — asserts a native FreeBSD ELF (`file`), sane linkage
    (`ldd`), `--version`, `--help`, and a short TUI smoke run.
 8. **Package** — writes `opencode-<VERSION>-freebsd-x64/` with the binary,
@@ -126,7 +135,9 @@ unnecessary — what remains is a normal `bun install` plus the `freebsd`
 entry in the opencode build targets.
 
 - [anomalyco/opencode#53689](https://github.com/anomalyco/opencode/pull/53689)
-  — FreeBSD x64 build target (the 4-line `build.ts` change `build.sh` applies)
+  — FreeBSD x64 build target (the `build.ts` change `build.sh` applies;
+  `build.sh` additionally adds the arm64 entry, which will be proposed
+  upstream once verified on real arm64 hardware)
 - [microsoft/node-pty#961](https://github.com/microsoft/node-pty/pull/961)
 - [anomalyco/opentui#1445](https://github.com/anomalyco/opentui/pull/1445)
 - [dmtrKovalenko/fff#824](https://github.com/dmtrKovalenko/fff/pull/824)
@@ -143,12 +154,27 @@ resolver looks.
 
 ## aarch64
 
-The patches are architecture-independent and the native libraries were
-checked on FreeBSD 14.4 arm64 too (node-pty spawns a shell, opentui and fff
-`dlopen` cleanly). The build script itself is amd64-first for now: it fetches
-the amd64 zig 0.15.2 tarball and names the platform packages `*-x64`. Making
-it arch-aware is a small change (set `ZIG015`/`ZIG015_URL`) nobody has needed
-yet.
+The scripts are arch-aware (`uname -m` selects bun arch names, zig target
+triples, platform-package names and release names), and the fff patch already
+maps both FreeBSD triples. Proven from an amd64 host so far:
+
+- `bun build --compile --target=bun-freebsd-arm64` emits a genuine
+  FreeBSD/aarch64 ELF, so the final link step needs no arm64 host.
+- `zig build -Dtarget=aarch64-freebsd` (zig 0.15.2) cross-builds
+  `libopentui.so` for aarch64 cleanly; zig publishes an
+  `aarch64-freebsd` 0.15.2 tarball, so `build.sh` fetches the toolchain
+  per-arch automatically.
+
+What still needs a real arm64 FreeBSD machine: building `libfff_c.so`
+(via cargo, expected to just work), building `pty.node` (via node-gyp),
+and — most importantly — validating the assembled binary (`--version`,
+TUI smoke). Until that happens, treat arm64 output as unvalidated:
+build it natively on arm64 with `sh build.sh`, verify per the checklist
+above, and only then cut a `freebsd-arm64-*` release.
+
+Caveats carried over from the earlier arm64 spot-checks: the fff
+FFI-level exercise and end-to-end TUI rendering were verified on amd64
+only; on arm64 the libraries were loaded and symbols resolved, nothing more.
 
 ## What this does not claim
 

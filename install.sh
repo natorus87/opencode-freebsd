@@ -47,11 +47,17 @@ done
 # Newest release: the version part is a fixed-width timestamp
 # (0.0.0-dev-YYYYMMDDHHMM), so lexicographic sort is enough.
 latest() {
-	ls -d "$RELEASES"/opencode-*-freebsd-x64 2>/dev/null | LC_ALL=C sort | tail -1
+	# Trailing slash: directories only, so sibling .tar.gz files never match.
+	ls -d "$RELEASES"/opencode-*-freebsd-*/ 2>/dev/null | LC_ALL=C sort | tail -1
 }
 
 TMPDIR=""
 BARE_TARBALL=0
+case "$(uname -m)" in
+	amd64) NATIVE_ARCH=x64 ;;
+	arm64|aarch64) NATIVE_ARCH=arm64 ;;
+	*) NATIVE_ARCH="" ;;
+esac
 cleanup() { [ -n "$TMPDIR" ] && [ -d "$TMPDIR" ] && rm -rf "$TMPDIR"; }
 trap cleanup EXIT INT TERM
 
@@ -61,7 +67,7 @@ if [ -n "$WANT" ]; then
 			[ -f "$WANT" ] || { err "tarball not found: $WANT"; exit 1; }
 			TMPDIR="$(mktemp -d)" || { err "mktemp failed"; exit 1; }
 			tar -xzf "$WANT" -C "$TMPDIR" || { err "unpacking $WANT failed"; exit 1; }
-			DIR="$(ls -d "$TMPDIR"/opencode-*-freebsd-x64 2>/dev/null | head -1)"
+			DIR="$(ls -d "$TMPDIR"/opencode-*-freebsd-*/ 2>/dev/null | head -1)"
 			if [ -z "$DIR" ] && [ -x "$TMPDIR/opencode" ] && [ -f "$TMPDIR/SHA256SUMS" ]; then
 				# Legacy/foreign layout: bare opencode + SHA256SUMS at top level.
 				DIR="$TMPDIR"
@@ -70,15 +76,21 @@ if [ -n "$WANT" ]; then
 			[ -n "$DIR" ] || { err "no release content inside $WANT"; exit 1; }
 			;;
 		*)
-			DIR=$RELEASES/opencode-$WANT-freebsd-x64
-			[ -d "$DIR" ] || { err "release not found: $DIR"; exit 1; }
+			# Prefer the native arch, fall back to any arch on record
+			# (older versions double as rollback targets).
+			DIR=""
+			[ -n "$NATIVE_ARCH" ] && [ -d "$RELEASES/opencode-$WANT-freebsd-$NATIVE_ARCH" ] &&
+				DIR=$RELEASES/opencode-$WANT-freebsd-$NATIVE_ARCH
+			[ -z "$DIR" ] && DIR=$(ls -d "$RELEASES"/opencode-"$WANT"-freebsd-*/ 2>/dev/null | head -1)
+			[ -n "$DIR" ] || { err "release not found: $RELEASES/opencode-$WANT-freebsd-*"; exit 1; }
 			;;
 	esac
 else
 	DIR=$(latest)
 	[ -n "$DIR" ] || { err "no release in $RELEASES (see --releases)"; exit 1; }
 fi
-VER=${DIR##*/opencode-}; VER=${VER%-freebsd-x64}
+DIR=${DIR%/}
+D=${DIR##*/}; D=${D#opencode-}; VER=${D%-freebsd-*}
 BIN=$DIR/opencode
 
 [ -x "$BIN" ] || { err "$BIN missing or not executable"; exit 1; }

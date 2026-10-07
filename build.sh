@@ -66,6 +66,13 @@ ARCH="$(uname -m)"
 say() { echo "=== $*"; }
 die() { echo "build.sh: FATAL: $*" >&2; exit 1; }
 
+# Architecture mapping: FreeBSD uname -m -> bun arch names -> zig target triples.
+case "${ARCH}" in
+	amd64) BUN_ARCH=x64; ZIG_TARGET=x86_64-freebsd; ZIG_TARBALL_ARCH=x86_64 ;;
+	arm64|aarch64) BUN_ARCH=arm64; ZIG_TARGET=aarch64-freebsd; ZIG_TARBALL_ARCH=aarch64 ;;
+	*) die "unsupported architecture ${ARCH} (need amd64 or arm64)" ;;
+esac
+
 # --- 0. Toolchain ------------------------------------------------------------
 # zig 0.16.0 (pkg) builds opentui main but NOT the 0.4.5 tree opencode pins --
 # 0.4.5 needs 0.15.2 exactly (see patches/opentui-0.4.5-freebsd-zig.patch).
@@ -77,6 +84,7 @@ for t in git python3 cargo node npm cc; do
 done
 
 if ! command -v bun >/dev/null 2>&1; then
+	[ "${BUN_ARCH}" = "x64" ] || die "bun not found -- the official npm package is x64-only; install a FreeBSD/arm64 bun first (e.g. via pkg) and re-run"
 	say "installing bun (official FreeBSD build from npm)"
 	if [ "$(id -u)" -ne 0 ]; then
 		die "bun not found and not running as root -- either install bun first or re-run as root so it can be installed to /usr/local/bin"
@@ -92,11 +100,11 @@ fi
 bun --version
 
 if [ ! -x "${ZIG015}" ]; then
-	[ "${ARCH}" = "amd64" ] || die "no zig 0.15.2 at ${ZIG015} and no prebuilt URL for arch ${ARCH} -- set ZIG015 or ZIG015_URL"
 	say "fetching zig 0.15.2 (opencode's pinned opentui 0.4.5 will not build with zig 0.16)"
-	ZIG015_URL="${ZIG015_URL:-https://ziglang.org/download/0.15.2/zig-x86_64-freebsd-0.15.2.tar.xz}"
+	ZIG015_URL="${ZIG015_URL:-https://ziglang.org/download/0.15.2/zig-${ZIG_TARBALL_ARCH}-freebsd-0.15.2.tar.xz}"
 	mkdir -p "${OC_WORK}/zig015"
-	fetch -q -o /tmp/zig015.tar.xz "${ZIG015_URL}"
+	fetch -q -o /tmp/zig015.tar.xz "${ZIG015_URL}" ||
+		die "zig download failed -- set ZIG015 to a local zig 0.15.2 binary or ZIG015_URL to a mirror"
 	tar xJf /tmp/zig015.tar.xz -C "${OC_WORK}/zig015" --strip-components=1
 fi
 "${ZIG015}" version
@@ -124,16 +132,16 @@ git apply --check "${PATCHES}/fff-bun-freebsd.patch" 2>/dev/null &&
 cargo build --release -p fff-c
 (cd packages/fff-bun && bun install --silent && bun run build)
 
-FFF_BIN="${OC_SRC}/node_modules/@ff-labs/fff-bin-freebsd-x64"
+FFF_BIN="${OC_SRC}/node_modules/@ff-labs/fff-bin-freebsd-${BUN_ARCH}"
 rm -rf "${OC_SRC}/node_modules/@ff-labs/fff-bun" "${FFF_BIN}"
 mkdir -p "${FFF_BIN}"
 cp target/release/libfff_c.so "${FFF_BIN}/"
-cat > "${FFF_BIN}/package.json" <<'JSON'
+cat > "${FFF_BIN}/package.json" <<JSON
 {
-  "name": "@ff-labs/fff-bin-freebsd-x64",
+  "name": "@ff-labs/fff-bin-freebsd-${BUN_ARCH}",
   "version": "0.0.0",
   "os": ["freebsd"],
-  "cpu": ["x64"],
+  "cpu": ["${BUN_ARCH}"],
   "main": "libfff_c.so",
   "files": ["libfff_c.so"],
   "license": "MIT"
@@ -164,19 +172,19 @@ patch -p1 < "${PATCHES}/node-pty-freebsd.patch"
 npm i --ignore-scripts --no-audit --no-fund >/dev/null
 npx node-gyp rebuild
 
-PTY_PLAT="${OC_SRC}/node_modules/@lydell/node-pty-freebsd-x64"
-rm -rf "${PTY_PLAT}"; mkdir -p "${PTY_PLAT}/prebuilds/freebsd-x64"
+PTY_PLAT="${OC_SRC}/node_modules/@lydell/node-pty-freebsd-${BUN_ARCH}"
+rm -rf "${PTY_PLAT}"; mkdir -p "${PTY_PLAT}/prebuilds/freebsd-${BUN_ARCH}"
 cp -R lib "${PTY_PLAT}/lib"
-cp build/Release/pty.node "${PTY_PLAT}/prebuilds/freebsd-x64/pty.node"
+cp build/Release/pty.node "${PTY_PLAT}/prebuilds/freebsd-${BUN_ARCH}/pty.node"
 cat > "${PTY_PLAT}/package.json" <<JSON
 {
-  "name": "@lydell/node-pty-freebsd-x64",
+  "name": "@lydell/node-pty-freebsd-${BUN_ARCH}",
   "version": "${PTY_VER}",
   "license": "MIT",
   "type": "commonjs",
   "exports": "./lib/index.js",
   "os": ["freebsd"],
-  "cpu": ["x64"]
+  "cpu": ["${BUN_ARCH}"]
 }
 JSON
 
@@ -187,11 +195,11 @@ rm -rf "${PTY_TOP}"; mkdir -p "${PTY_TOP}"
 (cd "${OC_WORK}" && rm -rf lydtop && mkdir lydtop && cd lydtop &&
 	npm pack @lydell/node-pty >/dev/null && tar xzf ./*.tgz &&
 	cp -R package/. "${PTY_TOP}/")
-python3 - "${PTY_TOP}/package.json" "${PTY_VER}" <<'PY'
+python3 - "${PTY_TOP}/package.json" "${PTY_VER}" "freebsd-${BUN_ARCH}" <<'PY'
 import json,sys
-p,ver=sys.argv[1],sys.argv[2]
+p,ver,plat=sys.argv[1],sys.argv[2],sys.argv[3]
 d=json.load(open(p))
-d.setdefault("optionalDependencies",{})["@lydell/node-pty-freebsd-x64"]=ver
+d.setdefault("optionalDependencies",{})["@lydell/node-pty-"+plat]=ver
 json.dump(d,open(p,"w"),indent=2)
 PY
 
@@ -210,14 +218,14 @@ cd "${OT}"
 git apply --check "${PATCHES}/opentui-0.4.5-freebsd-zig.patch" 2>/dev/null &&
 	git apply "${PATCHES}/opentui-0.4.5-freebsd-zig.patch"
 cd "${OT}/packages/core/src/zig"
-"${ZIG015}" build -Doptimize=ReleaseFast
+"${ZIG015}" build -Doptimize=ReleaseFast -Dtarget="${ZIG_TARGET}"
 
-OT_PLAT="${OC_SRC}/node_modules/@opentui/core-freebsd-x64"
+OT_PLAT="${OC_SRC}/node_modules/@opentui/core-freebsd-${BUN_ARCH}"
 rm -rf "${OT_PLAT}"; mkdir -p "${OT_PLAT}"
-cp lib/x86_64-freebsd/libopentui.so "${OT_PLAT}/"
+cp "lib/${ZIG_TARGET}/libopentui.so" "${OT_PLAT}/"
 cat > "${OT_PLAT}/package.json" <<JSON
 {
-  "name": "@opentui/core-freebsd-x64",
+  "name": "@opentui/core-freebsd-${BUN_ARCH}",
   "version": "${OT_VER}",
   "type": "module",
   "main": "index.js",
@@ -225,7 +233,7 @@ cat > "${OT_PLAT}/package.json" <<JSON
   "license": "MIT",
   "exports": { ".": { "bun": "./index.bun.js", "import": "./index.js" } },
   "os": ["freebsd"],
-  "cpu": ["x64"]
+  "cpu": ["${BUN_ARCH}"]
 }
 JSON
 cat > "${OT_PLAT}/index.js" <<'JS'
@@ -254,6 +262,9 @@ win_old = '  if (process.platform === "win32") {\n    if (process.arch === "x64"
 win_new = ('  if (process.platform === "freebsd") {\n'
            '    if (process.arch === "x64") {\n'
            '      return (await import("@opentui/core-freebsd-x64")).default;\n'
+           '    }\n'
+           '    if (process.arch === "arm64") {\n'
+           '      return (await import("@opentui/core-freebsd-arm64")).default;\n'
            '    }\n  }\n' + win_old)
 
 changed = []
@@ -285,22 +296,27 @@ echo "Headless server:  ... src/index.ts serve --port 4096"
 exit 0
 fi
 
-# --- 7. FreeBSD target for the opencode build --------------------------------
-# Upstream packages/opencode/script/build.ts has no freebsd entry in allTargets.
-# Add it (idempotent) so `build.ts --single` emits opencode-freebsd-x64.
-say "freebsd build target"
+# --- 7. FreeBSD targets for the opencode build --------------------------------
+# Upstream packages/opencode/script/build.ts has no freebsd entries in allTargets.
+# Add them (idempotent) so `build.ts --single` emits opencode-freebsd-<arch>.
+# (--single filters by current platform/arch, so the other arch entry is inert.)
+say "freebsd build targets"
 python3 - "${OC_SRC}/packages/opencode/script/build.ts" <<'PY'
 import sys
 p = sys.argv[1]
 s = open(p).read()
-if '"freebsd"' not in s and "'freebsd'" not in s and 'freebsd' not in s:
-    old = '    avx2: false,\n  },\n]'
-    new = '    avx2: false,\n  },\n  {\n    os: "freebsd",\n    arch: "x64",\n  },\n]'
-    assert old in s, "allTargets anchor not found -- upstream build.ts changed shape"
-    open(p, "w").write(s.replace(old, new))
-    print("added freebsd/x64 target to allTargets")
+missing = []
+for arch in ("x64", "arm64"):
+    if 'os: "freebsd",\n    arch: "%s"' % arch not in s:
+        missing.append(arch)
+if not missing:
+    print("freebsd targets already present")
 else:
-    print("freebsd target already present")
+    anchor = '  },\n]'
+    assert anchor in s, "allTargets anchor not found -- upstream build.ts changed shape"
+    add = "".join('  {\n    os: "freebsd",\n    arch: "%s",\n  },\n' % a for a in missing)
+    open(p, "w").write(s.replace(anchor, '  },\n' + add + ']', 1))
+    print("added freebsd target(s): " + ", ".join(missing))
 PY
 
 # --- 8. Build the binary -----------------------------------------------------
@@ -311,7 +327,7 @@ BUILD_ARGS="--single --skip-install"
 # shellcheck disable=SC2086
 bun run packages/opencode/script/build.ts ${BUILD_ARGS}
 
-BIN="packages/opencode/dist/opencode-freebsd-x64/bin/opencode"
+BIN="packages/opencode/dist/opencode-freebsd-${BUN_ARCH}/bin/opencode"
 [ -x "${BIN}" ] || die "expected binary missing: ${BIN}"
 
 # --- 9. Validate ---------------------------------------------------------------

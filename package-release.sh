@@ -1,8 +1,8 @@
 #!/bin/sh
 # Package a validated opencode FreeBSD binary into a release directory:
-#   <OC_RELEASES>/opencode-<VERSION>-freebsd-x64/
+#   <OC_RELEASES>/opencode-<VERSION>-freebsd-<arch>/
 #     opencode  BUILD-INFO.txt  SHA256SUMS
-# plus a sibling tarball opencode-<VERSION>-freebsd-x64.tar.gz.
+# plus a sibling tarball opencode-<VERSION>-freebsd-<arch>.tar.gz.
 #
 # Usage: sh package-release.sh <path-to-built-opencode-binary>
 # Env:   OC_RELEASES (default: $HOME/opencode-releases)
@@ -18,10 +18,16 @@ VER="$("${BIN}" --version 2>/dev/null)" || { echo "package-release.sh: --version
 [ -n "${VER}" ] || { echo "package-release.sh: empty --version output" >&2; exit 1; }
 
 case "${VER}" in
-	*/*|*' '*|*..*) echo "package-release.sh: suspicious version string: ${VER}" >&2; exit 1 ;;
+	*/*|*' '*|*..*) echo "package-release.sh: unable to use version string: ${VER}" >&2; exit 1 ;;
 esac
 
-R="${OC_RELEASES}/opencode-${VER}-freebsd-x64"
+# Architecture comes from the build output path (.../dist/opencode-freebsd-<arch>/bin/...).
+case "${BIN}" in
+	*-freebsd-arm64/*) REL_ARCH=arm64 ;;
+	*) REL_ARCH=x64 ;;
+esac
+
+R="${OC_RELEASES}/opencode-${VER}-freebsd-${REL_ARCH}"
 mkdir -p "${R}"
 cp "${BIN}" "${R}/opencode"
 chmod 755 "${R}/opencode"
@@ -36,7 +42,7 @@ BUILD_HOST="$(freebsd-version 2>/dev/null || uname -r)"
 BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
 cat > "${R}/BUILD-INFO.txt" <<INFO
-OpenCode FreeBSD-amd64 Build Info
+OpenCode FreeBSD-${REL_ARCH} Build Info
 ===============================
 OpenCode version (binary --version): ${VER}
 Git commit (opencode checkout): $(git -C "$(dirname "${BIN}")/../../../.." log --oneline -1 2>/dev/null || echo unknown)
@@ -50,8 +56,8 @@ Note: the file watcher logs "watcher backend not supported, platform=freebsd" (n
 INFO
 
 (cd "${R}" && sha256 opencode > SHA256SUMS)
-(cd "${OC_RELEASES}" && tar -czf "opencode-${VER}-freebsd-x64.tar.gz" "opencode-${VER}-freebsd-x64"/opencode "opencode-${VER}-freebsd-x64"/BUILD-INFO.txt "opencode-${VER}-freebsd-x64"/SHA256SUMS)
+(cd "${OC_RELEASES}" && tar -czf "opencode-${VER}-freebsd-${REL_ARCH}.tar.gz" "opencode-${VER}-freebsd-${REL_ARCH}"/opencode "opencode-${VER}-freebsd-${REL_ARCH}"/BUILD-INFO.txt "opencode-${VER}-freebsd-${REL_ARCH}"/SHA256SUMS)
 
 echo "release: ${R}"
-echo "tarball: ${OC_RELEASES}/opencode-${VER}-freebsd-x64.tar.gz"
+echo "tarball: ${OC_RELEASES}/opencode-${VER}-freebsd-${REL_ARCH}.tar.gz"
 cat "${R}/SHA256SUMS"
