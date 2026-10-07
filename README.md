@@ -1,6 +1,6 @@
 # opencode on FreeBSD
 
-[opencode](https://github.com/sst/opencode) ships no FreeBSD build. The
+[opencode](https://github.com/anomalyco/opencode) ships no FreeBSD build. The
 `opencode-ai` npm package declares `"os": ["darwin", "linux", "win32"]` and
 there is no `opencode-freebsd-*` binary in any channel.
 
@@ -120,10 +120,13 @@ no CA bundle, so `zig fetch` fails with `CertificateBundleLoadFailure` until
 
 ## Upstream
 
-All three patches are open as upstream PRs. Once they land, most of this repo
-becomes unnecessary — what remains is a normal `bun install` plus the
-`freebsd` entry in the opencode build targets.
+All three native patches are open as upstream PRs, plus the build-target
+change from this repo. Once they all land, most of this repo becomes
+unnecessary — what remains is a normal `bun install` plus the `freebsd`
+entry in the opencode build targets.
 
+- [anomalyco/opencode#53689](https://github.com/anomalyco/opencode/pull/53689)
+  — FreeBSD x64 build target (the 4-line `build.ts` change `build.sh` applies)
 - [microsoft/node-pty#961](https://github.com/microsoft/node-pty/pull/961)
 - [anomalyco/opentui#1445](https://github.com/anomalyco/opentui/pull/1445)
 - [dmtrKovalenko/fff#824](https://github.com/dmtrKovalenko/fff/pull/824)

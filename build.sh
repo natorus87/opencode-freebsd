@@ -105,7 +105,7 @@ fi
 say "opencode checkout (${OC_SRC})"
 mkdir -p "${OC_WORK}"
 if [ ! -d "${OC_SRC}" ]; then
-	git clone --depth 1 ${OC_REF:+--branch "${OC_REF}"} https://github.com/sst/opencode "${OC_SRC}"
+	git clone --depth 1 ${OC_REF:+--branch "${OC_REF}"} https://github.com/anomalyco/opencode "${OC_SRC}"
 fi
 if [ "${SKIP_NATIVES}" -eq 1 ]; then
 	say "skipping bun install (reusing node_modules with native libs)"
