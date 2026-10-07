@@ -187,7 +187,9 @@ only; on arm64 the libraries were loaded and symbols resolved, nothing more.
 
 ## What this does not claim
 
-- Not tested on any other BSD.
+- Tested on FreeBSD 15.x amd64 and on the current OPNsense release (where
+  the binary runs and free-model inference was verified working). Not tested
+  on any other BSD.
 - The fff FFI-level exercise (`FileFinder.create()` + `fileSearch()` returning
   real results) was run on amd64 only; on arm64 the library was loaded and
   symbols resolved, nothing more.
